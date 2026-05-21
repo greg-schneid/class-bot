@@ -18,10 +18,18 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set `MODEL_BACKEND=qwen_local` for free local testing, or `MODEL_BACKEND=openai` once the OpenAI path is implemented.
+Set `MODEL_BACKEND=qwen_local` for free local testing with `mlx_lm`, or `MODEL_BACKEND=openai` once the OpenAI path is implemented.
 
 ## Run
 
 ```bash
 python -m src.bot.discord_bot
+```
+
+## CLI testing
+
+You can test the answer flow before Discord with:
+
+```bash
+python -m src.cli.ask "Does MTE 320 have mandatory labs?" --course MTE320
 ```

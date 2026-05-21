@@ -23,7 +23,7 @@ def create_bot() -> "discord.Client":
     if discord is None:  # pragma: no cover
         raise RuntimeError("discord.py is not installed. Run `pip install -r requirements.txt` first.")
 
-    config = get_config()
+    config = get_config(require_discord_token=True)
     intents = discord.Intents.default()
 
     class CourseRepBot(discord.Client):
@@ -73,8 +73,10 @@ def create_bot() -> "discord.Client":
 
 
 async def _run() -> None:
-    config = get_config()
+    config = get_config(require_discord_token=True)
     bot = create_bot()
+    if not config.discord_token:  # pragma: no cover
+        raise RuntimeError("DISCORD_TOKEN is missing")
     await bot.start(config.discord_token)
 
 

@@ -8,11 +8,13 @@ from src.config import Config
 
 def make_config(backend: str) -> Config:
     return Config(
-        discord_token="token",
+        discord_token=None,
         discord_application_id=None,
         discord_guild_id=None,
         model_backend=backend,
-        qwen_script_path=Path("/tmp/test_qwen.py"),
+        qwen_model_name="mlx-community/Qwen3.5-4B-MLX-4bit",
+        qwen_max_tokens=512,
+        qwen_enable_thinking=False,
         openai_api_key=None,
         openai_vector_store_id=None,
         openai_model="gpt-5.4-mini",

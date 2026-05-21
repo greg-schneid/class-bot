@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from functools import lru_cache
 
 from src.ai.provider import GenerationRequest, GenerationResult
 from src.config import Config
@@ -11,25 +11,38 @@ class QwenLocalBackend:
         self.config = config
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
-        script_path = self.config.qwen_script_path
-        if script_path is None:
-            raise RuntimeError("QWEN_SCRIPT_PATH is not configured")
-        if not Path(script_path).exists():
-            raise RuntimeError(f"Qwen script not found at {script_path}")
-
-        # Placeholder until we inspect the real script interface.
-        prompt_preview = request.user_prompt.strip()[:600]
+        model, tokenizer, generate_fn = _load_qwen_runtime(self.config.qwen_model_name)
+        messages = [
+            {"role": "system", "content": request.system_prompt},
+            {"role": "user", "content": request.user_prompt},
+        ]
+        prompt = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=self.config.qwen_enable_thinking,
+        )
+        response = generate_fn(
+            model,
+            tokenizer,
+            prompt=prompt,
+            max_tokens=self.config.qwen_max_tokens,
+            verbose=False,
+        )
         return GenerationResult(
-            text=(
-                "Answer:\n"
-                "The local Qwen backend is wired into the app structure, but its adapter still needs "
-                "the concrete call contract from the external script.\n\n"
-                "Source:\n"
-                "Local markdown materials\n\n"
-                "Confidence:\n"
-                "Ambiguous\n\n"
-                "Note:\n"
-                f"Adapter stub active. Prompt preview: {prompt_preview}"
-            ),
+            text=response,
             backend_name="qwen_local",
         )
+
+
+@lru_cache(maxsize=2)
+def _load_qwen_runtime(model_name: str):
+    try:
+        from mlx_lm import generate, load
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "mlx_lm is not installed. Install the local Qwen runtime dependencies before using MODEL_BACKEND=qwen_local."
+        ) from exc
+
+    model, tokenizer = load(model_name)
+    return model, tokenizer, generate
