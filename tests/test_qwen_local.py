@@ -1,7 +1,7 @@
 from pathlib import Path
 import asyncio
 
-from src.ai.provider import GenerationRequest
+from src.ai.provider import GenerationRequest, GenerationResult
 from src.ai.qwen_local import QwenLocalBackend, _RUNTIME_MANAGER
 from src.config import Config
 
@@ -108,3 +108,42 @@ def test_qwen_backend_subprocess_mode_uses_worker_process(monkeypatch) -> None:
     assert result.text == "worker response"
     assert captured["args"][1:] == ("-m", "src.ai.qwen_local_worker")
     assert "\"model_name\": \"test-model\"" in captured["payload"]
+
+
+def test_qwen_backend_serializes_concurrent_requests(monkeypatch) -> None:
+    config = make_config(idle_unload_seconds=0.0)
+    config = Config(**{**config.__dict__, "qwen_runtime_mode": "subprocess"})
+    backend = QwenLocalBackend(config=config)
+    events: list[str] = []
+
+    async def fake_generate_via_subprocess(request: GenerationRequest) -> str:
+        events.append(f"start:{request.user_prompt}")
+        await asyncio.sleep(0.01)
+        events.append(f"end:{request.user_prompt}")
+        return f"response:{request.user_prompt}"
+
+    monkeypatch.setattr(backend, "_generate_via_subprocess", fake_generate_via_subprocess)
+
+    async def run_two() -> tuple[GenerationResult, GenerationResult]:
+        return await asyncio.gather(
+            backend.generate(
+                GenerationRequest(
+                    system_prompt="system",
+                    user_prompt="first",
+                    course_hint=None,
+                )
+            ),
+            backend.generate(
+                GenerationRequest(
+                    system_prompt="system",
+                    user_prompt="second",
+                    course_hint=None,
+                )
+            ),
+        )
+
+    first, second = asyncio.run(run_two())
+
+    assert first.text == "response:first"
+    assert second.text == "response:second"
+    assert events == ["start:first", "end:first", "start:second", "end:second"]

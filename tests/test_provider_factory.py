@@ -38,3 +38,10 @@ def test_factory_selects_qwen() -> None:
 
 def test_factory_selects_openai() -> None:
     assert isinstance(get_model_provider(make_config("openai")), OpenAIBackend)
+
+
+def test_factory_reuses_provider_for_same_config() -> None:
+    config = make_config("qwen_local")
+    first = get_model_provider(config)
+    second = get_model_provider(config)
+    assert first is second

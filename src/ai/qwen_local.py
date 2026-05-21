@@ -5,6 +5,7 @@ import gc
 import json
 import sys
 from dataclasses import dataclass
+from contextlib import suppress
 
 from src.ai.provider import GenerationRequest, GenerationResult
 from src.config import Config
@@ -15,6 +16,12 @@ class _LoadedQwenRuntime:
     model: object
     tokenizer: object
     generate_fn: object
+
+
+@dataclass
+class _QueuedGeneration:
+    request: GenerationRequest
+    future: asyncio.Future[GenerationResult]
 
 
 class _QwenRuntimeManager:
@@ -74,7 +81,9 @@ _RUNTIME_MANAGER = _QwenRuntimeManager()
 class QwenLocalBackend:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self._generation_lock = asyncio.Lock()
+        self._queue: asyncio.Queue[_QueuedGeneration] = asyncio.Queue()
+        self._worker_task: asyncio.Task[None] | None = None
+        self._worker_lock = asyncio.Lock()
 
     async def preload(self) -> None:
         if self.config.qwen_runtime_mode == "subprocess":
@@ -82,26 +91,54 @@ class QwenLocalBackend:
         await _RUNTIME_MANAGER.get_runtime(self.config.qwen_model_name)
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
+        await self._ensure_worker()
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[GenerationResult] = loop.create_future()
+        await self._queue.put(_QueuedGeneration(request=request, future=future))
+        return await future
+
+    async def close(self) -> None:
+        worker = self._worker_task
+        if worker is None:
+            return
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+        self._worker_task = None
+
+    async def _ensure_worker(self) -> None:
+        async with self._worker_lock:
+            if self._worker_task is None or self._worker_task.done():
+                self._worker_task = asyncio.create_task(self._worker_loop())
+
+    async def _worker_loop(self) -> None:
+        while True:
+            queued = await self._queue.get()
+            try:
+                result = await self._execute_request(queued.request)
+            except Exception as exc:
+                if not queued.future.done():
+                    queued.future.set_exception(exc)
+            else:
+                if not queued.future.done():
+                    queued.future.set_result(result)
+            finally:
+                self._queue.task_done()
+
+    async def _execute_request(self, request: GenerationRequest) -> GenerationResult:
         if self.config.qwen_runtime_mode == "subprocess":
             response = await self._generate_via_subprocess(request)
-            return GenerationResult(
-                text=response,
-                backend_name="qwen_local",
-            )
+            return GenerationResult(text=response, backend_name="qwen_local")
 
-        async with self._generation_lock:
-            runtime = await _RUNTIME_MANAGER.get_runtime(self.config.qwen_model_name)
-            try:
-                response = await asyncio.to_thread(self._generate_sync, request, runtime)
-            finally:
-                await _RUNTIME_MANAGER.schedule_unload(
-                    self.config.qwen_model_name,
-                    self.config.qwen_idle_unload_seconds,
-                )
-        return GenerationResult(
-            text=response,
-            backend_name="qwen_local",
-        )
+        runtime = await _RUNTIME_MANAGER.get_runtime(self.config.qwen_model_name)
+        try:
+            response = await asyncio.to_thread(self._generate_sync, request, runtime)
+        finally:
+            await _RUNTIME_MANAGER.schedule_unload(
+                self.config.qwen_model_name,
+                self.config.qwen_idle_unload_seconds,
+            )
+        return GenerationResult(text=response, backend_name="qwen_local")
 
     async def _generate_via_subprocess(self, request: GenerationRequest) -> str:
         payload = json.dumps(
