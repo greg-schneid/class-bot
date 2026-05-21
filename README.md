@@ -12,7 +12,7 @@ Discord bot to answer course-administrative questions using local course materia
 ## Setup
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -23,7 +23,15 @@ Set `MODEL_BACKEND=qwen_local` for free local testing with `mlx_lm`, or `MODEL_B
 ## Run
 
 ```bash
-python -m src.bot.discord_bot
+.venv/bin/python -m src.bot.discord_bot
+```
+
+## Normalize raw course files
+
+If you add raw PDFs or saved HTML course pages under `data/course_docs/raw`, rebuild the standardized markdown files with:
+
+```bash
+.venv/bin/python -m src.docs.normalize_raw_docs
 ```
 
 ## CLI testing
@@ -31,5 +39,5 @@ python -m src.bot.discord_bot
 You can test the answer flow before Discord with:
 
 ```bash
-python -m src.cli.ask "Does MTE 320 have mandatory labs?" --course MTE320
+.venv/bin/python -m src.cli.ask "Does MTE 320 have mandatory labs?" --course MTE320
 ```
