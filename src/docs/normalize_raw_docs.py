@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
+import shutil
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -11,6 +12,7 @@ from pypdf import PdfReader
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 RAW_DIR = ROOT_DIR / "data" / "course_docs" / "raw"
+RAW_PROCESSED_DIR = RAW_DIR / "processed"
 COURSE_DOCS_DIR = ROOT_DIR / "data" / "course_docs"
 COURSE_UPDATES_DIR = ROOT_DIR / "data" / "course_updates"
 MANIFEST_PATH = ROOT_DIR / "data" / "manifest.json"
@@ -18,48 +20,88 @@ MANIFEST_PATH = ROOT_DIR / "data" / "manifest.json"
 
 @dataclass(frozen=True)
 class RawDoc:
-    path: Path
+    filename: str
     course_code: str
     display_name: str
     doc_label: str
+    archive_duplicates: tuple[str, ...] = ()
+
+    @property
+    def path(self) -> Path:
+        primary = RAW_DIR / self.filename
+        if primary.exists():
+            return primary
+        processed = RAW_PROCESSED_DIR / self.filename
+        return processed
 
 
 RAW_DOCS: tuple[RawDoc, ...] = (
     RawDoc(
-        path=RAW_DIR / "Spring 2026_ Introduction to Thermodynamics and Heat Transfer.html",
+        filename="Spring 2026_ Introduction to Thermodynamics and Heat Transfer.html",
         course_code="MTE309",
         display_name="MTE 309",
         doc_label="Course outline",
     ),
     RawDoc(
-        path=RAW_DIR / "Course schedule_MTE309_S26.pdf",
+        filename="Course schedule_MTE309_S26.pdf",
         course_code="MTE309",
         display_name="MTE 309",
         doc_label="Course schedule",
     ),
     RawDoc(
-        path=RAW_DIR / "MTE 320 - Spring 2026 - Course Outline.pdf",
+        filename="MTE 320 - Spring 2026 - Course Outline.pdf",
         course_code="MTE320",
         display_name="MTE 320",
         doc_label="Course outline",
     ),
     RawDoc(
-        path=RAW_DIR / "MTE_321__Outline.pdf",
+        filename="MTE 320 - Lab Schedule Spring 2026.pdf",
+        course_code="MTE320",
+        display_name="MTE 320",
+        doc_label="Lab schedule",
+        archive_duplicates=("MTE 320 - Lab Schedule Spring 2026 (1).pdf",),
+    ),
+    RawDoc(
+        filename="MTE_321__Outline.pdf",
         course_code="MTE321",
         display_name="MTE 321",
         doc_label="Course outline",
     ),
     RawDoc(
-        path=RAW_DIR / "Spring 2026_ Microprocessor Systems and Interfacing for Mechatronics Engineering.html",
+        filename="MTE321_Project1.pdf",
+        course_code="MTE321",
+        display_name="MTE 321",
+        doc_label="Project 1",
+    ),
+    RawDoc(
+        filename="Spring 2026_ Microprocessor Systems and Interfacing for Mechatronics Engineering.html",
         course_code="MTE325",
         display_name="MTE 325",
         doc_label="Course outline",
     ),
     RawDoc(
-        path=RAW_DIR / "Spring 2026_ Systems Models 1.html",
+        filename="MTE 325 Project.tex",
+        course_code="MTE325",
+        display_name="MTE 325",
+        doc_label="Project guide",
+    ),
+    RawDoc(
+        filename="Spring 2026_ Systems Models 1.html",
         course_code="MTE351",
         display_name="MTE 351",
         doc_label="Course outline",
+    ),
+    RawDoc(
+        filename="MTE 3A Makeup Lecture Schedule_S26_Feb 18, 2026.pdf",
+        course_code="GENERAL",
+        display_name="General Mechatronics Info",
+        doc_label="3A makeup lecture schedule",
+    ),
+    RawDoc(
+        filename="MTE 3A Mid-term Exam Schedule_S26_Feb 27, 2026.pdf",
+        course_code="GENERAL",
+        display_name="General Mechatronics Info",
+        doc_label="3A midterm exam schedule",
     ),
 )
 
@@ -128,6 +170,42 @@ SKIP_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
 SKIP_SECTION_TITLES: set[str] = {
     "## University Policy",
     "University Policy",
+}
+
+PDF_SECTION_TITLES: set[str] = {
+    "Class Schedule",
+    "Instructional Team",
+    "Course Description",
+    "Learning Outcomes",
+    "Tentative Class Plan",
+    "Required Materials & Technologies",
+    "Readings",
+    "Assessments & Activities",
+    "Late / Missed Content",
+    "Assignment Screening",
+    "Generative AI",
+    "Generative AI Policy",
+    "Administrative Policy",
+    "Course outline",
+    "Study Material",
+    "Laboratory Studies",
+    "Notes on labs",
+    "Tutorials",
+    "LEARN",
+    "Email Correspondences",
+    "Marking Scheme",
+    "Course Timetable",
+    "Teaching Team’s Contact Information",
+    "General Notes",
+    "Project Rules",
+    "Exam Rules",
+    "Project",
+    "Grading",
+    "Exams",
+    "Midterm Exam",
+    "Final Exam",
+    "Course Deliverables",
+    "Notice of Recording",
 }
 
 
@@ -219,6 +297,41 @@ def extract_pdf_text(path: Path) -> str:
     return "\n".join(pages)
 
 
+def extract_tex_text(path: Path) -> str:
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    document_match = re.search(r"\\begin\{document\}(.*)\\end\{document\}", text, flags=re.DOTALL)
+    if document_match:
+        text = document_match.group(1)
+    introduction_match = re.search(r"\\section\{Introduction\}(.*)", text, flags=re.DOTALL)
+    if introduction_match:
+        text = introduction_match.group(0)
+    text = re.sub(r"(?m)^%.*$", "", text)
+    text = text.replace("\\\\", "\n")
+    text = text.replace("\\%", "%")
+    text = text.replace("\\_", "_")
+    text = text.replace("~", " ")
+    text = re.sub(r"\\(?:label|ref|pageref|autoref)\{[^}]*\}", " ", text)
+    text = re.sub(r"\\url\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\href\{[^}]*\}\{([^}]*)\}", r"\1", text)
+    text = re.sub(r"\\begin\{[^}]+\}", "\n", text)
+    text = re.sub(r"\\end\{[^}]+\}", "\n", text)
+    text = re.sub(r"\\(?:documentclass|input|hyphenation|renewcommand|setcounter|pagestyle)\b.*", "\n", text)
+    text = re.sub(r"\\(?:maketitle|tableofcontents|newpage|vspace\*?\{[^}]*\})", "\n", text)
+    text = re.sub(r"\\(?:section|subsection|subsubsection)\*?\{([^}]*)\}", r"\n\1\n", text)
+    text = re.sub(r"\\(?:title|author|date)\{([^}]*)\}", r"\n\1\n", text)
+    text = re.sub(r"\\item(?:\[[^]]+\])?", "\n- ", text)
+    text = re.sub(r"\\[A-Za-z]+\*?(?:\[[^]]*\])?(?:\{([^}]*)\})?", r" \1 ", text)
+    text = re.sub(r"\$[^$]*\$", " ", text)
+    text = re.sub(r"(?m)^\[[^]]+\]$", "", text)
+    text = re.sub(r"(?m)^\{\|.*\|\}$", "", text)
+    text = re.sub(r"(?m)^[{}\[\]=,.\- ]+$", "", text)
+    text = re.sub(r"(?m)^[A-Za-z]+:[A-Za-z]", lambda match: match.group(0).replace(":", ": "), text)
+    text = re.sub(r"(?m)^.*(?:LaTeX Template|Original author|License:|CC BY-NC-SA).*$", "", text)
+    text = re.sub(r"(?m)^\s*(?:fig|sec|app):[A-Za-z0-9_-]+\s*$", "", text)
+    text = re.sub(r"(?m)^\s*h!+\s*$", "", text)
+    return text
+
+
 def extract_html_text(path: Path) -> str:
     raw_html = path.read_text(encoding="utf-8", errors="ignore")
     for pattern in HTML_NOISE_PATTERNS:
@@ -264,6 +377,8 @@ def normalize_text(text: str) -> str:
 def cleanup_extracted_text(text: str) -> str:
     text = normalize_text(text)
     text = re.sub(r"(?m)^## .+\n(?=\n## |\Z)", "", text)
+    text = re.sub(r"\n## Administrative Policy.*?(?=\n## |\Z)", "\n", text, flags=re.DOTALL)
+    text = re.sub(r"(?m)^([A-Za-z][A-Za-z /()'&.-]+):(?=\S)", r"\1: ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -312,6 +427,17 @@ def _cleanup_pdf_lines(text: str) -> str:
             continue
         if found_first_section and re.fullmatch(r"1\s+Class Schedule", line):
             found_first_section = False
+        section_match = re.fullmatch(r"\d+\s+(.+)", line)
+        if section_match and section_match.group(1) in PDF_SECTION_TITLES:
+            if cleaned and cleaned[-1] != "":
+                cleaned.append("")
+            cleaned.append(f"## {section_match.group(1)}")
+            continue
+        if line in PDF_SECTION_TITLES:
+            if cleaned and cleaned[-1] != "":
+                cleaned.append("")
+            cleaned.append(f"## {line}")
+            continue
         cleaned.append(line)
     filtered = _filter_noise_lines(_collapse_blank_lines(cleaned))
     return "\n".join(filtered)
@@ -371,7 +497,9 @@ def _starts_skip_block(line: str) -> bool:
 
 def _should_skip_entire_section(line: str) -> bool:
     normalized = line.strip()
-    return normalized in SKIP_SECTION_TITLES or bool(re.fullmatch(r"\d+\s+University Policy", normalized))
+    return normalized in SKIP_SECTION_TITLES or bool(
+        re.fullmatch(r"\d+\s+(?:University Policy|Administrative Policy)", normalized)
+    )
 
 
 def _is_heading_line(line: str) -> bool:
@@ -401,12 +529,20 @@ def build_course_markdown(display_name: str, docs: list[RawDoc]) -> str:
         sections.append(f"- `{doc.path.relative_to(ROOT_DIR)}` ({doc.doc_label})")
     sections.append("")
 
+    extracted_sections: list[str] = []
     for doc in docs:
-        if doc.path.suffix.lower() == ".pdf":
+        suffix = doc.path.suffix.lower()
+        if suffix == ".pdf":
             extracted = _cleanup_pdf_lines(extract_pdf_text(doc.path))
+        elif suffix == ".tex":
+            extracted = normalize_text(extract_tex_text(doc.path))
         else:
             extracted = extract_html_text(doc.path)
+        extracted = _postprocess_extracted_text(doc.course_code, doc.doc_label, extracted)
         extracted = cleanup_extracted_text(extracted)
+        if any(extracted and extracted in prior for prior in extracted_sections):
+            continue
+        extracted_sections.append(extracted)
 
         sections.append(f"## {doc.doc_label}")
         sections.append(f"Raw file: `{doc.path.relative_to(ROOT_DIR)}`")
@@ -420,6 +556,89 @@ def build_course_markdown(display_name: str, docs: list[RawDoc]) -> str:
     return markdown.strip() + "\n"
 
 
+def _postprocess_extracted_text(course_code: str, doc_label: str, text: str) -> str:
+    cleaned = text
+    if course_code == "MTE320" and doc_label == "Course outline":
+        cleaned = re.sub(
+            r"\nMTE 320 Lab Schedule - Spring 2026.*?(?=\n## |\Z)",
+            "\n",
+            cleaned,
+            flags=re.DOTALL,
+        )
+        learn_with_table = re.search(
+            r"(## LEARN\n.*?drop boxes\.)\n\nLab\s+Description\s+In-Lab\s+Practice\s+Post-lab Report\s+Due Dates\s+Post-lab\s+Quiz.*?(?=\n## |\Z)",
+            cleaned,
+            flags=re.DOTALL,
+        )
+        if learn_with_table:
+            cleaned = cleaned.replace(learn_with_table.group(0), learn_with_table.group(1))
+
+    if course_code == "MTE321" and doc_label == "Course outline":
+        cleaned = re.sub(
+            r"Letting\s+Wdenote.*?Any reduction in the report weight is transferred to the exam weight\.",
+            (
+                "Project weights depend on the exam average. Each project keeps its full 25% weight if the "
+                "average of the midterm and final is at least 55%. If the exam average is between 50% and 55%, "
+                "each project weight is reduced proportionally. If the exam average is below 50%, each project "
+                "weight becomes 0%, and the removed weight shifts to the exams."
+            ),
+            cleaned,
+            flags=re.DOTALL,
+        )
+        cleaned = re.sub(r"TA 1:\s*Arya Amiri", "TA 1: Arya Amiri", cleaned)
+        cleaned = re.sub(r"TA 2:\s*Mohamed Aboelkhier", "TA 2: Mohamed Aboelkhier", cleaned)
+        cleaned = re.sub(r"TA 3:\s*Mohit\.?", "TA 3: Mohit", cleaned)
+        cleaned = cleaned.replace("-All lectures and tutorials arein-person.", "- All lectures and tutorials are in-person.")
+        cleaned = cleaned.replace("-In-class lecture notes will be posted on LEARN after each lecture.", "- In-class lecture notes will be posted on LEARN after each lecture.")
+        cleaned = cleaned.replace("-A tentative course schedule is provided with this outline.", "- A tentative course schedule is provided with this outline.")
+        cleaned = cleaned.replace("-For questions regarding course materials or projects, students are encouraged to first consult the", "- For questions regarding course materials or projects, students are encouraged to first consult the")
+        cleaned = cleaned.replace("Final Exam Date & Location:TBD", "Final Exam Date & Location: TBD")
+
+    if course_code == "MTE325" and doc_label == "Course outline":
+        cleaned = re.sub(
+            r"Overall Grade Calculation.*?Your overall grade is calculated using the following expression:.*?(?=\nNOTES:)",
+            (
+                "Overall Grade Calculation\n"
+                "Project work is worth up to 30% and exams are worth at least 70%. To keep the full 30% project "
+                "weight, the exam average must be at least 55%. If the exam average falls below 55%, the project "
+                "weight decreases, with a minimum project weight of 15%, and the exam weight increases accordingly.\n"
+            ),
+            cleaned,
+            flags=re.DOTALL,
+        )
+
+    if course_code == "MTE325" and doc_label == "Project guide":
+        cleaned = re.sub(
+            r"Tasks\s+This project is divided into multiple deliverables.*?\*Final project grade is capped at 30 points including bonuses\.",
+            (
+                "Tasks\n\n"
+                "This project is divided into multiple deliverables across the term and is worth 30% of the final grade.\n"
+                "- SOP Quiz: 1 point, before session 1\n"
+                "- Tool Test: 0 points, session 1\n"
+                "- Polling and Interrupts: 7 points, session 2\n"
+                "- Limit Switches: 4 points, session 3\n"
+                "- ADC Characterization: 5 points, session 3/4\n"
+                "- Motor Characterization: 4 points plus 1 bonus point, session 4/5\n"
+                "- Functional Objective: 4 points, session 5/6\n"
+                "- Lab Notes: 3 points, after each work session as an online submission\n"
+                "- Block Diagram: 2 points, session 3 onward as an online submission\n"
+                "Final project grade is capped at 30 points including bonuses."
+            ),
+            cleaned,
+            flags=re.DOTALL,
+        )
+        cleaned = re.sub(r"(?m)^\s*\{[^{}\n]+\}\{[^{}\n]+\}.*$", "", cleaned)
+        cleaned = re.sub(r"(?m)^\s*Success Condition:.*$", "", cleaned)
+        if "Before Your First Session" in cleaned:
+            cleaned = cleaned.split("Before Your First Session", 1)[0].rstrip() + (
+                "\n\nDetailed setup, tooling, and implementation instructions follow in the original project guide. "
+                "They were omitted from this normalized summary to keep retrieval focused on course logistics, "
+                "grading, expectations, and allowed collaboration.\n"
+            )
+
+    return cleaned
+
+
 def build_updates_markdown(display_name: str) -> str:
     return (
         f"# {display_name} Updates\n\n"
@@ -431,6 +650,7 @@ def build_updates_markdown(display_name: str) -> str:
 def write_course_docs() -> dict[str, dict[str, str]]:
     COURSE_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     COURSE_UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+    RAW_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     grouped: dict[str, list[RawDoc]] = {}
     display_names: dict[str, str] = {}
@@ -467,6 +687,36 @@ def write_course_docs() -> dict[str, dict[str, str]]:
     return manifest_courses
 
 
+def archive_processed_files() -> None:
+    for doc in RAW_DOCS:
+        _archive_if_needed(RAW_DIR / doc.filename)
+        for duplicate in doc.archive_duplicates:
+            _archive_if_needed(RAW_DIR / duplicate)
+
+
+def _archive_if_needed(source: Path) -> None:
+    if not source.exists() or not source.is_file():
+        return
+    target = RAW_PROCESSED_DIR / source.name
+    if target.exists():
+        if source.read_bytes() == target.read_bytes():
+            source.unlink()
+            return
+        target = _dedupe_target(target)
+    shutil.move(str(source), str(target))
+
+
+def _dedupe_target(target: Path) -> Path:
+    stem = target.stem
+    suffix = target.suffix
+    counter = 2
+    candidate = target
+    while candidate.exists():
+        candidate = target.with_name(f"{stem}-{counter}{suffix}")
+        counter += 1
+    return candidate
+
+
 def write_manifest(courses: dict[str, dict[str, str]]) -> None:
     manifest = {
         "version": 1,
@@ -476,6 +726,7 @@ def write_manifest(courses: dict[str, dict[str, str]]) -> None:
 
 
 def main() -> None:
+    archive_processed_files()
     courses = write_course_docs()
     write_manifest(courses)
     print(f"Normalized {len(courses)} course documents from {RAW_DIR.relative_to(ROOT_DIR)}.")
