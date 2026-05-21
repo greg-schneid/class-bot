@@ -6,6 +6,8 @@ from pathlib import Path
 from src.config import Config
 from src.docs.manifest import get_manifest
 
+GENERAL_COURSE_CODES = {"GENERAL"}
+
 
 @dataclass(frozen=True)
 class RetrievedCourseContext:
@@ -22,7 +24,10 @@ def build_retrieval_context(config: Config, course_hint: str | None) -> Retrieve
     courses = manifest.get("courses", {})
     root_dir = config.manifest_path.parent.parent
 
-    selected_codes = [course_hint.strip().upper()] if course_hint else sorted(courses.keys())
+    if course_hint:
+        selected_codes = [course_hint.strip().upper()]
+    else:
+        selected_codes = sorted(code for code in courses.keys() if code not in GENERAL_COURSE_CODES)
     chunks: list[str] = []
     source_names: list[str] = []
 
