@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from src.rag.prompt_safety import sanitize_untrusted_text
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT_TEMPLATE = """
 You are class-bot, an academic representative assistant for a university class Discord server.
 
 Use only the provided course materials and update notes for course-specific facts.
@@ -40,6 +42,15 @@ Found | Ambiguous | Not found
 Note:
 I only checked uploaded course materials. Newer Learn announcements, instructor emails, or Learn posts may override this.
 """.strip()
+
+
+def build_system_prompt(now: datetime | None = None) -> str:
+    current_time = now or datetime.now().astimezone()
+    return (
+        f"{SYSTEM_PROMPT_TEMPLATE}\n\n"
+        "Current date and time:\n"
+        f"{current_time.isoformat()}"
+    )
 
 
 def build_user_prompt(question: str, course_hint: str | None, retrieval_context: str) -> str:
