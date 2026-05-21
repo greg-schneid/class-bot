@@ -9,6 +9,9 @@ from src.rag.retrieval import build_retrieval_context
 from src.rag.schemas import BotAnswer, DEFAULT_NOTE, enforce_safe_answer, parse_model_response
 from src.storage.logging import log_interaction
 
+GENERATION_FAILURE_MESSAGE = "Sorry, the bot doesn't appear to be working right now."
+
+
 async def answer_course_question_async(
     question: str,
     course_hint: str | None,
@@ -56,7 +59,20 @@ async def answer_course_question_async(
             ),
             course_hint=course_hint,
         )
-        result = await provider.generate(request)
+        last_timeout = False
+        result = None
+        for _attempt in range(2):
+            try:
+                result = await provider.generate(request)
+                break
+            except TimeoutError:
+                last_timeout = True
+            except Exception:
+                last_timeout = False
+        if result is None:
+            if last_timeout:
+                raise TimeoutError
+            raise RuntimeError("Model generation failed twice.")
         parsed = enforce_safe_answer(parse_model_response(result.text))
         if parsed.source == "Unknown" and retrieval_context.source_names:
             parsed.source = ", ".join(retrieval_context.source_names)
@@ -72,7 +88,7 @@ async def answer_course_question_async(
         return parsed
     except TimeoutError:
         return BotAnswer(
-            answer="The request timed out. Please try again with a shorter question.",
+            answer=GENERATION_FAILURE_MESSAGE,
             source="None",
             confidence="Not found",
             note=DEFAULT_NOTE,
@@ -80,7 +96,7 @@ async def answer_course_question_async(
         )
     except Exception:
         return BotAnswer(
-            answer="I hit an error while checking the uploaded course materials. Please try again later.",
+            answer=GENERATION_FAILURE_MESSAGE,
             source="None",
             confidence="Ambiguous",
             note=DEFAULT_NOTE,

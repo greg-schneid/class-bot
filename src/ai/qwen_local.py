@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 
 from src.ai.provider import GenerationRequest, GenerationResult
@@ -9,8 +10,20 @@ from src.config import Config
 class QwenLocalBackend:
     def __init__(self, config: Config) -> None:
         self.config = config
+        self._generation_lock = asyncio.Lock()
+
+    async def preload(self) -> None:
+        await asyncio.to_thread(_load_qwen_runtime, self.config.qwen_model_name)
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
+        async with self._generation_lock:
+            response = await asyncio.to_thread(self._generate_sync, request)
+        return GenerationResult(
+            text=response,
+            backend_name="qwen_local",
+        )
+
+    def _generate_sync(self, request: GenerationRequest) -> str:
         model, tokenizer, generate_fn = _load_qwen_runtime(self.config.qwen_model_name)
         messages = [
             {"role": "system", "content": request.system_prompt},
@@ -22,16 +35,12 @@ class QwenLocalBackend:
             add_generation_prompt=True,
             enable_thinking=self.config.qwen_enable_thinking,
         )
-        response = generate_fn(
+        return generate_fn(
             model,
             tokenizer,
             prompt=prompt,
             max_tokens=self.config.qwen_max_tokens,
             verbose=False,
-        )
-        return GenerationResult(
-            text=response,
-            backend_name="qwen_local",
         )
 
 

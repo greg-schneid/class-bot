@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover
 
 from src.bot.commands import SOURCE_POLICY_TEXT, build_classes_response
 from src.bot.formatting import format_bot_answer, truncate_for_discord
+from src.ai.factory import get_model_provider
 from src.rag.answerer import answer_course_question_async
 
 
@@ -32,6 +33,10 @@ def create_bot() -> "discord.Client":
             self.tree = app_commands.CommandTree(self)
 
         async def setup_hook(self) -> None:
+            provider = get_model_provider(config)
+            preload = getattr(provider, "preload", None)
+            if callable(preload):
+                await preload()
             if config.discord_guild_id:
                 guild = discord.Object(id=config.discord_guild_id)
                 self.tree.copy_global_to(guild=guild)
