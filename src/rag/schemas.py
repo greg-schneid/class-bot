@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 
 Confidence = Literal["Found", "Ambiguous", "Not found"]
@@ -8,6 +9,17 @@ Confidence = Literal["Found", "Ambiguous", "Not found"]
 DEFAULT_NOTE = (
     "I only checked uploaded course materials. Newer Learn announcements, instructor emails, "
     "or Learn posts may override this."
+)
+
+UNSUPPORTED_NEGATIVE_PATTERNS = (
+    re.compile(r"\bnot mentioned\b", re.IGNORECASE),
+    re.compile(r"\bnot explicitly (?:mentioned|stated|listed)\b", re.IGNORECASE),
+    re.compile(r"\bnot listed\b", re.IGNORECASE),
+    re.compile(r"\bno explicit mention\b", re.IGNORECASE),
+    re.compile(r"\bno mention\b", re.IGNORECASE),
+    re.compile(r"\bno\b.*\bmentioned\b", re.IGNORECASE),
+    re.compile(r"\bcould not find\b", re.IGNORECASE),
+    re.compile(r"\bnot found in (?:the )?(?:provided )?course materials\b", re.IGNORECASE),
 )
 
 
@@ -64,6 +76,8 @@ def parse_model_response(text: str) -> BotAnswer:
 def enforce_safe_answer(bot_answer: BotAnswer) -> BotAnswer:
     if bot_answer.confidence not in {"Found", "Ambiguous", "Not found"}:
         bot_answer.confidence = "Ambiguous"
+    if any(pattern.search(bot_answer.answer) for pattern in UNSUPPORTED_NEGATIVE_PATTERNS):
+        bot_answer.confidence = "Not found"
     if not bot_answer.note:
         bot_answer.note = DEFAULT_NOTE
     if len(bot_answer.answer) > 1200:

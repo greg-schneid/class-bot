@@ -3,11 +3,11 @@ from __future__ import annotations
 from src.ai.factory import get_model_provider
 from src.ai.provider import GenerationRequest
 from src.config import Config
+from src.rag.prompt_safety import SAFE_BLOCK_MESSAGE, detect_prompt_injection_attempt
 from src.rag.prompts import SYSTEM_PROMPT, build_user_prompt
 from src.rag.retrieval import build_retrieval_context
 from src.rag.schemas import BotAnswer, DEFAULT_NOTE, enforce_safe_answer, parse_model_response
 from src.storage.logging import log_interaction
-
 
 async def answer_course_question_async(
     question: str,
@@ -24,6 +24,25 @@ async def answer_course_question_async(
             note=DEFAULT_NOTE,
             raw_response="",
         )
+
+    safety_result = detect_prompt_injection_attempt(question)
+    if safety_result.blocked:
+        blocked_answer = BotAnswer(
+            answer=SAFE_BLOCK_MESSAGE,
+            source="Safety policy",
+            confidence="Not found",
+            note=DEFAULT_NOTE,
+            raw_response="blocked_by_prompt_safety",
+        )
+        log_interaction(
+            logs_dir=config.logs_dir,
+            question=question,
+            answer=blocked_answer,
+            discord_user_id=discord_user_id,
+            discord_channel_id=discord_channel_id,
+            backend_name=f"blocked:{safety_result.reason}",
+        )
+        return blocked_answer
 
     try:
         retrieval_context = build_retrieval_context(config=config, course_hint=course_hint)
