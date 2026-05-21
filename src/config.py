@@ -23,6 +23,8 @@ class Config:
     qwen_model_name: str
     qwen_max_tokens: int
     qwen_enable_thinking: bool
+    qwen_runtime_mode: str
+    qwen_idle_unload_seconds: float
     openai_api_key: str | None
     openai_vector_store_id: str | None
     openai_model: str
@@ -47,6 +49,15 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _parse_float(value: str | None, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def get_config(*, require_discord_token: bool = False) -> Config:
     root = _resolve_root()
 
@@ -65,13 +76,18 @@ def get_config(*, require_discord_token: bool = False) -> Config:
         qwen_model_name=os.getenv("QWEN_MODEL_NAME", "mlx-community/Qwen3.5-4B-MLX-4bit"),
         qwen_max_tokens=int(os.getenv("QWEN_MAX_TOKENS", "512")),
         qwen_enable_thinking=_parse_bool(os.getenv("QWEN_ENABLE_THINKING"), default=False),
+        qwen_runtime_mode=os.getenv("QWEN_RUNTIME_MODE", "subprocess").strip().lower() or "subprocess",
+        qwen_idle_unload_seconds=max(
+            0.0,
+            _parse_float(os.getenv("QWEN_IDLE_UNLOAD_SECONDS"), default=0.0),
+        ),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_vector_store_id=os.getenv("OPENAI_VECTOR_STORE_ID"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
         bot_env=os.getenv("BOT_ENV", "dev"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         max_question_chars=int(os.getenv("MAX_QUESTION_CHARS", "1000")),
-        max_response_chars=int(os.getenv("MAX_RESPONSE_CHARS", "1800")),
+        max_response_chars=int(os.getenv("MAX_RESPONSE_CHARS", "2000")),
         data_dir=root / "data",
         course_docs_dir=root / "data" / "course_docs",
         course_updates_dir=root / "data" / "course_updates",

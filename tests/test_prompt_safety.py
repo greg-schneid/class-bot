@@ -15,6 +15,8 @@ def make_config() -> Config:
         qwen_model_name="mlx-community/Qwen3.5-4B-MLX-4bit",
         qwen_max_tokens=512,
         qwen_enable_thinking=False,
+        qwen_runtime_mode="subprocess",
+        qwen_idle_unload_seconds=0.0,
         openai_api_key=None,
         openai_vector_store_id=None,
         openai_model="gpt-5.4-mini",

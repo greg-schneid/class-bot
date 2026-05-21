@@ -20,6 +20,8 @@ cp .env.example .env
 
 Set `MODEL_BACKEND=qwen_local` for free local testing with `mlx_lm`, or `MODEL_BACKEND=openai` once the OpenAI path is implemented.
 
+When using `MODEL_BACKEND=qwen_local`, the default `QWEN_RUNTIME_MODE=subprocess` runs each local generation in a short-lived worker process so model memory is released when the request finishes. If you want lower latency and are okay with the process retaining model memory, set `QWEN_RUNTIME_MODE=in_process` and tune `QWEN_IDLE_UNLOAD_SECONDS`.
+
 ## Run
 
 ```bash
